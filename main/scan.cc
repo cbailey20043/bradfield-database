@@ -30,10 +30,10 @@ class Scan : public Iterator {
     void init();
     void close();
     RowTuple get_next();
-    void read_data();
   private:
     vector<RowTuple> records;
     int iterator_position = 0;
+    void read_data();
 };
 
 class SelectionNode : public Iterator {
@@ -65,8 +65,9 @@ bool RowTuple::is_empty() {
 }
 
 void Scan::init() {
-  cout << "Scan Node Inited" << "\n";
+  cout << "Scan Node Inited" << endl;
   records.clear();
+  read_data();
 }
 
 void Scan::close() {
@@ -96,7 +97,6 @@ int main() {
   cout << "Hello";
   Scan scan;
   scan.init();
-  scan.read_data();
   RowTuple row_tuple;
   
   while (!(row_tuple = scan.get_next()).is_empty()) {
