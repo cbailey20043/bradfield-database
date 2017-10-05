@@ -8,8 +8,8 @@ using std::endl;
 
 class RowTuple {
   public:
-    RowTuple();
-    RowTuple(vector<string>, vector<string>);
+    RowTuple() {};
+    RowTuple(vector<string> col_names, vector<string> data) : column_headers(std::move(col_names)), row_data(std::move(data)) {}
     bool is_empty();
     void print_contents();
   private:
@@ -36,9 +36,12 @@ class Scan : public Iterator {
     int iterator_position = 0;
 };
 
-RowTuple::RowTuple() {}
-
-RowTuple::RowTuple(vector<string> col_names, vector<string> data) : column_headers(std::move(col_names)), row_data(std::move(data)) {}
+class SelectionNode : public Iterator {
+  public:
+    void init();
+    void close();
+    RowTuple get_next();
+};
 
 void RowTuple::print_contents() {
   if (column_headers.empty()) {
