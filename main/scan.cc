@@ -8,7 +8,7 @@ using std::cout;
 using std::string;
 using std::endl;
 using std::unordered_map;
-using std::shared_ptr;
+using std::unique_ptr;
 
 class RowTuple {
   public:
@@ -43,16 +43,16 @@ class Iterator {
     virtual void close() = 0;
     virtual RowTuple get_next() = 0;
 
-    void set_inputs(vector<shared_ptr<Iterator>> inputs) {
+    void set_inputs(vector<unique_ptr<Iterator>> inputs) {
       this->inputs = std::move(inputs);
     }
 
-    void append_input(shared_ptr<Iterator> new_input) {
-      inputs.push_back(new_input);
+    void append_input(unique_ptr<Iterator> new_input) {
+      inputs.push_back(std::move(new_input));
     }
 
   protected:
-    vector<shared_ptr<Iterator>> inputs; //inputs = some other vector -> assignment op
+    vector<unique_ptr<Iterator>> inputs; //inputs = some other vector -> assignment op
 };
 
 // Note I believe Scan is an input / parent for Select in this example
