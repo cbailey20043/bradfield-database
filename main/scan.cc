@@ -1,19 +1,37 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <memory>
 
 using std::vector;
 using std::cout;
 using std::string;
 using std::endl;
 using std::unordered_map;
+using std::shared_ptr;
 
 class RowTuple {
   public:
     RowTuple() {};
     RowTuple(unordered_map<string, string> input_map) : row_data(std::move(input_map)) {}
-    bool is_empty();
-    void print_contents();
+
+    bool is_empty() {
+      return row_data.empty();
+    }
+
+    void print_contents() {
+      if (row_data.empty()) {
+        cout << "Column: None" << endl;
+        cout << "Value: None" << endl;
+        return;
+      }
+
+      for (const auto& it : row_data) {
+        cout << "Column: " << it.first << endl;
+        cout << "Value: " << it.second << endl;
+      }
+    }
+
   private:
     unordered_map<string, string> row_data;
 };
@@ -23,6 +41,8 @@ class Iterator {
     //virtual void init() = 0;
     virtual void close() = 0;
     virtual RowTuple get_next() = 0;
+  protected:
+    vector<shared_ptr<Iterator>> inputs;
 };
 
 // Note I believe Scan is an input / parent for Select in this example
@@ -30,29 +50,62 @@ class Iterator {
 // calling next on scan until select's predicate returns true
 class Scan : public Iterator {
   public:
-    void init();
-    void close();
-    RowTuple get_next();
+
+    void init() {
+      cout << "Scan Node Initiated" << endl;
+      records.clear();
+      iterator_position = 0;
+      read_data();
+    }
+
+    void close() {
+      cout << "Scan node closed" << endl;
+    }
+
+    RowTuple get_next() {
+      if (iterator_position >= records.size()) {
+        RowTuple empty_tuple;
+        return empty_tuple;
+      }
+      // Calls copy constructor
+      RowTuple row_tuple = records[iterator_position]; // same as RowTuple row_tuple(records[iterator_pos])
+      iterator_position++;
+      return row_tuple;
+    }
+
   private:
     vector<RowTuple> records;
-    int iterator_position = 0;
-    void read_data();
+    unsigned int iterator_position = 0;
+
+    void read_data() {
+      cout << "Reading in data from scan node" << endl;
+      if (!records.empty()) { records.clear(); }
+
+      cout << "Inserting fake records " << endl;
+      records.push_back(RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}}));
+      cout << "Records read in" << endl;
+    }
 };
 
 class Select : public Iterator {
   public:
-    void init();
-    void close();
-    void set_input(Iterator *);
-    void set_predicate(bool (*predicate) (RowTuple));
+
+    void init() {}
+
+    void close() {}
+
+    void set_input() {}
+
+    void set_predicate(bool (*predicate) (RowTuple)) {}
+
     RowTuple get_next();
   private:
-    Iterator *input;
     bool (*predicate) (RowTuple);
 };
 
 /*** Implementations */
 
+/*
 void Select::set_input(Iterator *it) {
   input = it;
 }
@@ -71,54 +124,10 @@ RowTuple Select::get_next() {
     }
   }
   // Nothing in input satisfies predicate :(
+  // Make sure this is doing what you want
   return RowTuple();
 }
-
-void RowTuple::print_contents() {
-  if (row_data.empty()) {
-    cout << "Column: None" << endl; 
-    cout << "Value: None" << endl;
-  }
-
-  for (const auto& it : row_data) { // very convenient
-    cout << "Column: " << it.first << endl;
-    cout << "Value: " << it.second << endl;
-  }
-}
-
-// still works with map
-bool RowTuple::is_empty() {
-  return row_data.empty();
-}
-
-void Scan::init() {
-  cout << "Scan Node Inited" << endl;
-  records.clear();
-  read_data();
-}
-
-void Scan::close() {
-  cout << "Scan Node closed" << endl;
-}
-
-void Scan::read_data() {
-  cout << "Reading in data from scan node" << endl;
-  if (!records.empty()) {records.clear();}
-  cout << "Emptied records" << endl;
-
-  records.push_back(RowTuple({{"student", "Cameron"}, {"Sport", "Tennis"}}));
-  cout << "Records Length: " << records.size() << endl;
-}
-
-RowTuple Scan::get_next() {
-  if (iterator_position >= records.size()) {
-    RowTuple empty_tuple;
-    return empty_tuple;
-  }
-  RowTuple row_tuple = records[iterator_position];
-  iterator_position++;
-  return row_tuple;
-}
+*/
 
 int main() {
   cout << "Starting Main Function" << endl;
