@@ -38,18 +38,34 @@ class RowTuple {
 
 class Iterator {
   public:
-    //virtual void init() = 0;
+
+    virtual void init() = 0;
     virtual void close() = 0;
     virtual RowTuple get_next() = 0;
+
+    void set_inputs(vector<shared_ptr<Iterator>> inputs) {
+      this->inputs = std::move(inputs);
+    }
+
+    void append_input(shared_ptr<Iterator> new_input) {
+      inputs.push_back(new_input);
+    }
+
   protected:
-    vector<shared_ptr<Iterator>> inputs;
+    vector<shared_ptr<Iterator>> inputs; //inputs = some other vector -> assignment op
 };
 
 // Note I believe Scan is an input / parent for Select in this example
 // FLOW: SELECT calls get_next() of scan, which is an input, applies a predicate and keeps
 // calling next on scan until select's predicate returns true
-class Scan : public Iterator {
+class FileScan : public Iterator {
   public:
+
+    FileScan() {}
+
+    FileScan(string file_name) {
+      this->file_name = file_name;
+    }
 
     void init() {
       cout << "Scan Node Initiated" << endl;
@@ -76,13 +92,15 @@ class Scan : public Iterator {
   private:
     vector<RowTuple> records;
     unsigned int iterator_position = 0;
+    string file_name = "";
+
 
     void read_data() {
       cout << "Reading in data from scan node" << endl;
       if (!records.empty()) { records.clear(); }
 
       cout << "Inserting fake records " << endl;
-      records.push_back(RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}}));
+      records.push_back(RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}, {"id", "2"}}));
       cout << "Records read in" << endl;
     }
 };
@@ -131,7 +149,7 @@ RowTuple Select::get_next() {
 
 int main() {
   cout << "Starting Main Function" << endl;
-  Scan scan;
+  FileScan scan;
   scan.init();
   RowTuple row_tuple;
   while ( !(row_tuple = scan.get_next()).is_empty()) {
