@@ -21,8 +21,10 @@ class RowTuple {
     }
 
     string get_value(const string& key) {
+      cout << "RowTuple: Attempting to find key " << key << endl;
       auto it = row_data.find(key);
       if (it == row_data.end()) {
+        cout << "Could not find key " << key << endl;
         return "";
       }
       return it->second;
@@ -43,7 +45,7 @@ class RowTuple {
     }
 
   private:
-    unordered_map<string, string> row_data;
+    std::unordered_map<string, string> row_data;
 };
 
 class Iterator {
@@ -52,7 +54,6 @@ class Iterator {
     virtual ~Iterator() = default;
     virtual void init() = 0;
     virtual void close() = 0;
-    virtual RowTuple get_next() = 0;
     virtual std::unique_ptr<RowTuple> get_next_ptr() = 0;
 
     void set_inputs(vector<unique_ptr<Iterator>> inputs) {
@@ -81,35 +82,21 @@ class FileScan : public Iterator {
 
     void init() {
       cout << "Scan Node Initiated" << endl;
-      records.clear();
+      record_ptrs.clear();
       iterator_position = 0;
-      read_data();
       read_data_2();
     }
 
     void close() {
       cout << "Scan node closed" << endl;
-      records.clear();
+      record_ptrs.clear();
       iterator_position = 0;
     }
 
-    RowTuple get_next() {
-      if (iterator_position >= records.size()) {
-        RowTuple empty_tuple;
-        return RowTuple();
-      }
-      // Calls copy constructor
-      // maybe read from iterator instead -- future enhancement
-      RowTuple row_tuple = records[iterator_position]; // same as RowTuple row_tuple(records[iterator_pos])
-      iterator_position++;
-      return row_tuple;
-    }
-
-    
     /** Note, with this implementation "seen" entries in record_ptrs are no longer valid */
     std::unique_ptr<RowTuple> get_next_ptr() {
       if (iterator_position >= record_ptrs.size()) {
-        return unique_ptr<RowTuple>(new RowTuple());
+        return nullptr;
       }
 
       auto row_tuple = std::move(record_ptrs[iterator_position]); 
@@ -125,22 +112,9 @@ class FileScan : public Iterator {
     */
 
   private:
-    vector<RowTuple> records;
     std::vector<std::unique_ptr<RowTuple>> record_ptrs;
     unsigned int iterator_position = 0;
     string file_name = "";
-
-
-    void read_data() {
-      cout << "Reading in data from scan node" << endl;
-      if (!records.empty()) { records.clear(); }
-
-      cout << "Inserting fake records " << endl;
-      records.push_back(RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}, {"id", "2"}}));
-      records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "blahness"}, {"id", "3"}}));
-      records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "gopher photography"}, {"id", "1"}}));
-      cout << "Records read in" << endl;
-    }
 
     void read_data_2() {
       if (!record_ptrs.empty()) { record_ptrs.clear(); }
@@ -149,10 +123,12 @@ class FileScan : public Iterator {
           new RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}, {"id", "2"}}));
       auto record2 = std::unique_ptr<RowTuple>(
           new RowTuple({{"student", "Foo Bar"}, {"Sport", "Rocket League"}, {"id", "3"}}));
+      auto record3 = std::unique_ptr<RowTuple>(
+          new RowTuple({{"student", "'Arry Potter"}, {"Sport", "Quidditch"}, {"id", "2"}}));
 
       record_ptrs.push_back(std::move(record1));
       record_ptrs.push_back(std::move(record2));
-      
+      record_ptrs.push_back(std::move(record3));
     }
 };
 
@@ -163,35 +139,27 @@ class Select : public Iterator {
 
     void close() {}
 
-    void set_predicate(bool (*predicate) (RowTuple)) {
+    void set_predicate(bool (*predicate) (const std::unique_ptr<RowTuple>&)) {
       this->predicate = predicate;
     }
-
-    RowTuple get_next() {
-      // right now this will only be a single input
-      // Also, add checks to make sure the predicate has been initialized
-      //
+    
+    std::unique_ptr<RowTuple> get_next_ptr() {
       if (inputs.empty() || predicate == nullptr) {
-        return RowTuple();
+        return nullptr;
       }
-
-      RowTuple tuple;
-      while (!(tuple = inputs[0]->get_next()).is_empty()) {
-        if (predicate(tuple)) {
-          return tuple;
+      std::unique_ptr<Iterator>& input = inputs[0];
+      std::unique_ptr<RowTuple> curr_tuple;
+      while((curr_tuple = input->get_next_ptr()) != nullptr) {
+        if (predicate(curr_tuple)) {
+          return curr_tuple;
         }
       }
-      return RowTuple();
-    }
-
-    /*
-    unique_ptr<RowTuple> get_next_ptr() {
       return nullptr;
-    }
-    */
 
+    }
+    
   private:
-    bool (*predicate) (RowTuple);
+    bool (*predicate) (const std::unique_ptr<RowTuple>&);
 };
 
 class Count : public Iterator {
@@ -209,28 +177,13 @@ class Count : public Iterator {
       this->result_alias = alias;
     }
 
-    RowTuple get_next() {
-      if (inputs.empty()) {
-        return RowTuple();
-      }
-
-      unique_ptr<Iterator>& input = inputs[0];
-      while (!(input->get_next()).is_empty()) {
-        num_records++;
-      }
-
-      //return RowTuple({result_alias, std::to_string(num_records)});
-      return RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(num_records)}});
-
-    }
-
     std::unique_ptr<RowTuple> get_next_ptr() {
       if (inputs.empty()) {
         return std::unique_ptr<RowTuple>(new RowTuple());
       }
       
       unique_ptr<Iterator>& input = inputs[0];
-      while(!(input->get_next_ptr())->is_empty()) {
+      while((input->get_next_ptr()) != nullptr) {
         num_records++;
       }
 
@@ -238,7 +191,7 @@ class Count : public Iterator {
           new RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(num_records)}}));
 
       return total_count;
-    };
+    }
 
   private:
     long num_records = 0;
@@ -264,38 +217,34 @@ class Average : public Iterator {
       this->column_to_avg = col_name;
     }
 
-    RowTuple get_next() {
+    /* Pointer representation */
+    unique_ptr<RowTuple> get_next_ptr() {
       if (inputs.empty() || column_to_avg == "") {
-        cout << "Averge: Either inputs or target col name not set" << endl;
-        return RowTuple();
+        cout << "Average: Either inputs or target col name not set" << endl;
+        return nullptr;
       }
 
       unique_ptr<Iterator>& input = inputs[0];
-      RowTuple curr_tuple;
+      unique_ptr<RowTuple> curr_tuple;
 
-      while (!(curr_tuple = input->get_next()).is_empty()) {
-        string val = curr_tuple.get_value(this->column_to_avg);
+      while((curr_tuple = input->get_next_ptr()) != nullptr) {
+        string val = curr_tuple->get_value(this->column_to_avg);
         if (val == "") {
           cout << "Average: No value in row_tuple matching key: " << this->column_to_avg << endl;
-          return RowTuple();
+          return nullptr;
         }
         long converted_val = atol(val.c_str());
         if (!converted_val) {
-          cout << "Avg: Conversion of string to long failed." << endl;
-          return RowTuple();
+          cout << "Avg: Conversion to long failed" << endl;
+          return nullptr;
         }
         running_sum += converted_val;
         total_count++;
       }
+      double avg = total_count == 0 ? 0.0 : ((running_sum)/((double) total_count));
 
-      if (total_count == 0) {
-        cout << "Avg: No Input Data" << endl;
-        return RowTuple();
-      }
-
-      double avg = running_sum/((double) total_count);
-      return RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(avg)}});
-
+      return std::unique_ptr<RowTuple>(
+          new RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(avg)}}));
     }
 
   private:
@@ -321,11 +270,13 @@ void query_one() {
   std::unique_ptr<RowTuple> foo = s.test_1(); 
   std::unique_ptr<RowTuple> bar = std::move(foo);
   */
+  /*
   FileScan s;
   s.init();
   auto next = s.get_next_ptr();
   cout << "About to print contents from query 1" << endl;
   next->print_contents();
+  */
 
   Count count;
   auto future_input = unique_ptr<Iterator>(new FileScan());
@@ -335,13 +286,33 @@ void query_one() {
   cout << "Printing Count Contents" << endl;
   tot_count->print_contents();
 
+}
 
+void test_two() {
+  cout << "Starting Test 2" << endl;
+  auto s = std::unique_ptr<Iterator>(new FileScan());
+  s->init();
 
+  Average avg("avg");
+  avg.set_col_to_avg("foo");
+  avg.append_input(std::move(s));
+  cout << "About to print average" << endl;
+  cout << (avg.get_next_ptr() == nullptr) << endl;
+
+  auto p = std::unique_ptr<Iterator>(new FileScan());
+  p->init();
+  Average avg2("id");
+  avg2.set_col_to_avg("id");
+  avg2.append_input(std::move(p));
+  cout << "About to print second average" << endl;
+  avg2.get_next_ptr()->print_contents();
+  
 }
 
 int main() {
   cout << "Starting Main Function" << endl;
   query_one();
+  test_two();
   /*
   FileScan scan;
   scan.init();
