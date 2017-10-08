@@ -87,6 +87,8 @@ class FileScan : public Iterator {
 
     void close() {
       cout << "Scan node closed" << endl;
+      records.clear();
+      iterator_position = 0;
     }
 
     RowTuple get_next() {
@@ -101,8 +103,26 @@ class FileScan : public Iterator {
       return row_tuple;
     }
 
+    /*
+    unique_ptr<RowTuple> get_next_ptr() {
+      if (iterator_position >= records.size()) {
+        return unique_ptr<RowTuple>(new RowTuple());
+      }
+
+      auto row_tuple = std::move(record_ptrs[iterator_position]); 
+      iterator_position++;
+      return row_tuple;
+    }
+
+    unique_ptr<RowTuple> test_1() {
+      auto gof = unique_ptr<RowTuple>(new RowTuple());
+      return gof;
+    }
+    */
+
   private:
     vector<RowTuple> records;
+    //std::vector<std::unique_ptr<RowTuple>> record_ptrs;
     unsigned int iterator_position = 0;
     string file_name = "";
 
@@ -114,6 +134,7 @@ class FileScan : public Iterator {
       cout << "Inserting fake records " << endl;
       records.push_back(RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}, {"id", "2"}}));
       records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "blahness"}, {"id", "3"}}));
+      records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "gopher photography"}, {"id", "1"}}));
       cout << "Records read in" << endl;
     }
 };
@@ -228,6 +249,11 @@ class Average : public Iterator {
         total_count++;
       }
 
+      if (total_count == 0) {
+        cout << "Avg: No Input Data" << endl;
+        return RowTuple();
+      }
+
       double avg = running_sum/((double) total_count);
       return RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(avg)}});
 
@@ -245,7 +271,18 @@ class Average : public Iterator {
     }
 };
 
+class Projection : public Iterator {
+};
+
+// SELECT names WHERE id = 5000 FROM movies
 void query_one() {
+  // Based off of above query
+  /*
+  FileScan s;
+  std::unique_ptr<RowTuple> foo = s.test_1(); 
+  std::unique_ptr<RowTuple> bar = std::move(foo);
+  */
+
 }
 
 int main() {
