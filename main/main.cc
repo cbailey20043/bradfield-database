@@ -53,6 +53,7 @@ class Iterator {
     virtual void init() = 0;
     virtual void close() = 0;
     virtual RowTuple get_next() = 0;
+    virtual std::unique_ptr<RowTuple> get_next_ptr() = 0;
 
     void set_inputs(vector<unique_ptr<Iterator>> inputs) {
       this->inputs = std::move(inputs);
@@ -83,6 +84,7 @@ class FileScan : public Iterator {
       records.clear();
       iterator_position = 0;
       read_data();
+      read_data_2();
     }
 
     void close() {
@@ -103,9 +105,10 @@ class FileScan : public Iterator {
       return row_tuple;
     }
 
-    /*
-    unique_ptr<RowTuple> get_next_ptr() {
-      if (iterator_position >= records.size()) {
+    
+    /** Note, with this implementation "seen" entries in record_ptrs are no longer valid */
+    std::unique_ptr<RowTuple> get_next_ptr() {
+      if (iterator_position >= record_ptrs.size()) {
         return unique_ptr<RowTuple>(new RowTuple());
       }
 
@@ -114,6 +117,7 @@ class FileScan : public Iterator {
       return row_tuple;
     }
 
+    /*
     unique_ptr<RowTuple> test_1() {
       auto gof = unique_ptr<RowTuple>(new RowTuple());
       return gof;
@@ -122,7 +126,7 @@ class FileScan : public Iterator {
 
   private:
     vector<RowTuple> records;
-    //std::vector<std::unique_ptr<RowTuple>> record_ptrs;
+    std::vector<std::unique_ptr<RowTuple>> record_ptrs;
     unsigned int iterator_position = 0;
     string file_name = "";
 
@@ -136,6 +140,19 @@ class FileScan : public Iterator {
       records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "blahness"}, {"id", "3"}}));
       records.push_back(RowTuple({{"student", "Foo Bar"}, {"Sport", "gopher photography"}, {"id", "1"}}));
       cout << "Records read in" << endl;
+    }
+
+    void read_data_2() {
+      if (!record_ptrs.empty()) { record_ptrs.clear(); }
+
+      auto record1 = std::unique_ptr<RowTuple>(
+          new RowTuple({{"student", "Jimmy Cricket"}, {"Sport", "Tennis"}, {"id", "2"}}));
+      auto record2 = std::unique_ptr<RowTuple>(
+          new RowTuple({{"student", "Foo Bar"}, {"Sport", "Rocket League"}, {"id", "3"}}));
+
+      record_ptrs.push_back(std::move(record1));
+      record_ptrs.push_back(std::move(record2));
+      
     }
 };
 
@@ -166,6 +183,12 @@ class Select : public Iterator {
       }
       return RowTuple();
     }
+
+    /*
+    unique_ptr<RowTuple> get_next_ptr() {
+      return nullptr;
+    }
+    */
 
   private:
     bool (*predicate) (RowTuple);
@@ -200,6 +223,22 @@ class Count : public Iterator {
       return RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(num_records)}});
 
     }
+
+    std::unique_ptr<RowTuple> get_next_ptr() {
+      if (inputs.empty()) {
+        return std::unique_ptr<RowTuple>(new RowTuple());
+      }
+      
+      unique_ptr<Iterator>& input = inputs[0];
+      while(!(input->get_next_ptr())->is_empty()) {
+        num_records++;
+      }
+
+      auto total_count = std::unique_ptr<RowTuple>(
+          new RowTuple(std::unordered_map<string, string>{{result_alias, std::to_string(num_records)}}));
+
+      return total_count;
+    };
 
   private:
     long num_records = 0;
@@ -282,11 +321,27 @@ void query_one() {
   std::unique_ptr<RowTuple> foo = s.test_1(); 
   std::unique_ptr<RowTuple> bar = std::move(foo);
   */
+  FileScan s;
+  s.init();
+  auto next = s.get_next_ptr();
+  cout << "About to print contents from query 1" << endl;
+  next->print_contents();
+
+  Count count;
+  auto future_input = unique_ptr<Iterator>(new FileScan());
+  future_input->init();
+  count.append_input(std::move(future_input));
+  auto tot_count = count.get_next_ptr();
+  cout << "Printing Count Contents" << endl;
+  tot_count->print_contents();
+
+
 
 }
 
 int main() {
   cout << "Starting Main Function" << endl;
+  query_one();
   /*
   FileScan scan;
   scan.init();
@@ -296,6 +351,7 @@ int main() {
   }
   */
 
+  /*
   cout << "Going Further" << endl;
 
   
@@ -313,6 +369,7 @@ int main() {
   cout << "About to Print Context of count" << endl;
   
   count.get_next().print_contents();
+  */
   
 
 

@@ -1,4 +1,7 @@
 cc_binary(
-    name = "scan",
-    srcs = ["scan.cc"],
+    name = "db",
+    srcs = ["main.cc"],
+    deps = [
+        '//thirdparty/csv_parser',
+    ],
 )
