@@ -44,6 +44,28 @@ class RowTuple {
       }
     }
 
+    // Note this is case sensitive right now
+    // TODO Maybe make case-insensitive
+    bool operator==(const RowTuple& other) {
+      if (row_data.size() != other.row_data.size()) {
+        return false;
+      }
+      
+      for (const auto& it : row_data) {
+        string key = it.first;
+        string value = it.second;
+        auto other_it = other.row_data.find(key);
+        if ((other_it == other.row_data.end()) || (other_it->second != value)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    bool operator!=(const RowTuple& other) {
+      return !(*this == other); 
+    }
+
   private:
     std::unordered_map<string, string> row_data;
 };
@@ -124,11 +146,17 @@ class FileScan : public Iterator {
       auto record2 = std::unique_ptr<RowTuple>(
           new RowTuple({{"student", "Foo Bar"}, {"Sport", "Rocket League"}, {"id", "3"}}));
       auto record3 = std::unique_ptr<RowTuple>(
-          new RowTuple({{"student", "'Arry Potter"}, {"Sport", "Quidditch"}, {"id", "2"}}));
+          new RowTuple({{"student", "Arry Potter"}, {"Sport", "Quidditch"}, {"id", "2"}}));
+      auto record4 = std::unique_ptr<RowTuple>(
+          new RowTuple({{"student", "Arry Potter"}, {"Sport", "Quidditch"}, {"id", "2"}}));
+      auto record5 = std::unique_ptr<RowTuple>(
+          new RowTuple({{"student", "Harry Potter"}, {"Sport", "Foo"}}));
 
       record_ptrs.push_back(std::move(record1));
       record_ptrs.push_back(std::move(record2));
       record_ptrs.push_back(std::move(record3));
+      record_ptrs.push_back(std::move(record4));
+      record_ptrs.push_back(std::move(record5));
     }
 };
 
@@ -259,6 +287,62 @@ class Average : public Iterator {
     }
 };
 
+class Distinct : public Iterator {
+  // Note, input needs to be in sorted order for this operator to work
+  public:
+    Distinct() {}
+
+    void init() {}
+
+    void close() {}
+
+    std::unique_ptr<RowTuple> get_next_ptr() {
+      if (inputs.empty()) {
+        return nullptr;
+      }
+      std::unique_ptr<Iterator>& input = inputs[0];
+      std::unique_ptr<RowTuple> curr_tuple;
+
+      while((curr_tuple = input->get_next_ptr()) != nullptr) {
+        if (curr_reference == nullptr) {
+          curr_reference = std::move(curr_tuple);
+        }
+        else {
+          if (*curr_reference != *curr_tuple) {
+            auto return_val = std::move(curr_reference);
+            curr_reference = std::move(curr_tuple);
+            return return_val;
+          }
+        }
+
+      }
+      
+      if (curr_reference != nullptr) {
+        return std::move(curr_reference);
+      }
+      return nullptr;
+    }
+
+  private:
+    std::unique_ptr<RowTuple> curr_reference = nullptr;
+};
+
+// Note right now sort criteria is being passed in
+class Sort : public Iterator {
+  public:
+    Sort() {}
+
+    void init() {}
+
+    void close() {}
+
+    std::unique_ptr<RowTuple> get_next_ptr() {
+      return nullptr;
+      // Call next from input until nothing left, store everything in vector, sort vector
+      // Keep returning elements from vector until noting left
+    }
+};
+
 class Projection : public Iterator {
 };
 
@@ -309,10 +393,58 @@ void test_two() {
   
 }
 
+// Tests row_tuple equality
+void test_three() {
+  cout << "Starting RowTuple equality tests" << endl;
+  RowTuple t1({{"student", "jimmy cricket"}, {"id", "2"}});
+  RowTuple t2({{"student", "jimmy cricket"}, {"id", "2"}});
+  cout << "RowTuple equality test 1\t" <<  "Expected: 1 " << "Actual: " << (t1 == t2) << endl;
+
+  cout << "Second RowTuple Test: Same keys but diff value" << endl;
+  RowTuple t3({{"student", "jimmy cricket"}, {"id", "2"}});
+  RowTuple t4({{"student", "jimmy cricket"}, {"id", "1"}});
+  cout << "RowTuple equality test 1\t" <<  "Expected: 0 " << "Actual: " << (t3 == t4) << endl;
+
+  cout << "RowTuple Equality Test: Diff keys, same value" << endl;
+  RowTuple t5({{"student", "jimmy cricket"}, {"ids", "2"}});
+  RowTuple t6({{"student", "jimmy cricket"}, {"id", "2"}});
+  cout << "RowTuple equality test 1\t" <<  "Expected: 0 " << "Actual: " << (t5 == t6) << endl;
+
+  cout << "RowTuple Equality Test: Diff size bucket" << endl;
+  RowTuple t7({{"student", "jimmy cricket"}, {"id", "2"}, {"fav_novel", "IT"}});
+  RowTuple t8({{"student", "jimmy cricket"}, {"id", "2"}});
+  cout << "RowTuple equality test 1\t" <<  "Expected: 0 " << "Actual: " << (t7 == t8) << endl;
+
+  cout << "RowTuple Equality: Check not equals operator" << endl;
+  RowTuple t9({{"student", "james cricket"}, {"id", "2"}});
+  RowTuple t10({{"student", "jimmy cricket"}, {"id", "2"}});
+  cout << "RowTuple equality test 1\t" <<  "Expected: 1 " << "Actual: " << (t9 != t10) << endl;
+  
+}
+
+// Can't test until sort is done
+void test_distinct_node() {
+  auto scan = std::unique_ptr<Iterator>(new FileScan());
+  scan->init();
+  Distinct d;
+  d.append_input(std::move(scan));
+
+  unique_ptr<RowTuple> tuple;
+  unsigned int counter = 0;
+
+  while((tuple = d.get_next_ptr()) != nullptr) {
+    tuple->print_contents();
+    counter++;
+  }
+  cout << "Number of records seen testing distinct = " << counter << endl;
+}
+
 int main() {
   cout << "Starting Main Function" << endl;
-  query_one();
-  test_two();
+  //query_one();
+  //test_two();
+  //test_three();
+  test_distinct_node();
   /*
   FileScan scan;
   scan.init();
