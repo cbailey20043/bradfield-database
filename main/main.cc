@@ -2,7 +2,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
-#include <stdlib.h>
+//#include <stdlib.h>
 
 using std::vector;
 using std::cout;
@@ -237,6 +237,7 @@ class Count : public Iterator {
       cout << "Initializing Count Node" << endl;
       Iterator::init();
       num_records = 0;
+      // result_alias = "Count";
     }
 
     void close() {
@@ -281,7 +282,7 @@ class Average : public Iterator {
       cout <<  "Initing Average Iterator" << endl;
       Iterator::init();
       total_count = 0;
-      running_sum = 0;
+      running_sum = 0.0;
     }
     void close() {
       cout << "Closing Average Iterator" << endl;
@@ -314,7 +315,7 @@ class Average : public Iterator {
           cout << "Average: No value in row_tuple matching key: " << this->column_to_avg << endl;
           return nullptr;
         }
-        long converted_val = atol(val.c_str());
+        double converted_val = std::stod(val.c_str());
         if (!converted_val) {
           cout << "Avg: Conversion to long failed" << endl;
           return nullptr;
@@ -332,7 +333,7 @@ class Average : public Iterator {
     string result_alias = "Average";
     string column_to_avg = "";
     long total_count;
-    long running_sum; // TODO guard against overflow
+    double running_sum; // TODO guard against overflow
 };
 
 class Distinct : public Iterator {
@@ -402,6 +403,9 @@ class Sort : public Iterator {
       // Call next from input until nothing left, store everything in vector, sort vector
       // Keep returning elements from vector until noting left
     }
+
+  private:
+    std::vector<std::unique_ptr<RowTuple>> sorted_list;
 };
 
 class Projection : public Iterator {
