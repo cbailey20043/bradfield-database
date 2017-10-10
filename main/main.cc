@@ -392,10 +392,16 @@ class Sort : public Iterator {
       // get_next will then return one sorted record at a time
       // so init() will be slow, get_next() = fast
       Iterator::init();
+      get_unsorted_input();
+     // sort_input();
     }
 
     void close() {
       Iterator::close();
+    }
+
+    void set_sort_column(string col_to_sort) {
+      this->sort_column = col_to_sort;
     }
 
     std::unique_ptr<RowTuple> get_next_ptr() {
@@ -406,6 +412,28 @@ class Sort : public Iterator {
 
   private:
     std::vector<std::unique_ptr<RowTuple>> sorted_list;
+    std::string sort_column = "";
+
+    void get_unsorted_input() {
+      std::unique_ptr<Iterator>& input = inputs[0];
+      std::unique_ptr<RowTuple> curr_tuple;
+
+      while ((curr_tuple = input->get_next_ptr()) != nullptr) {
+        sorted_list.push_back(std::move(curr_tuple));
+      }
+    }
+
+    
+    void sort_input() {
+
+      auto col_to_sort = this->sort_column;
+      
+      std::sort(sorted_list.begin(), sorted_list.end(), [&col_to_sort](unique_ptr<RowTuple> &a, unique_ptr<RowTuple> &b) {
+          return true;
+      });
+      
+
+    }
 };
 
 class Projection : public Iterator {
