@@ -2,6 +2,8 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <algorithm>
+#include <stdexcept>
 //#include <stdlib.h>
 
 using std::vector;
@@ -10,6 +12,10 @@ using std::string;
 using std::endl;
 using std::unordered_map;
 using std::unique_ptr;
+
+extern "C" {
+  #include "thirdparty/csv_parser/csv.h"
+}
 
 class RowTuple {
   public:
@@ -28,6 +34,11 @@ class RowTuple {
       }
       return it->second;
 
+    }
+
+    void add_pair_to_record(string key, string value) {
+      std::pair<std::string, std::string> new_pair(key, value);
+      this->row_data.insert(new_pair);
     }
 
     void print_contents() {
@@ -116,31 +127,25 @@ class FileScan : public Iterator {
 
     FileScan() {}
 
-    FileScan(string file_name) {
-      this->file_name = file_name;
-    }
+    FileScan(string file_path) : file_path(file_path) {}
 
     void init() {
       cout << "File scan Init method" << endl;
-      // Init inputs first
       Iterator::init();
 
-      // Handle myself
       record_ptrs.clear();
       iterator_position = 0;
-      read_dummy_data(); // comment out once you've implemented the read_csv function
-      //read_csv_data(); // uncomment when ready to read in CSV
+      //read_dummy_data(); // comment out once you've implemented the read_csv function
+      read_csv_data(); // uncomment when ready to read in CSV
     }
 
     void close() {
       cout << "File Scan Closed Called" << endl;
-      // Close inputs
       Iterator::close();
 
-      // Close class-specific resources
       record_ptrs.clear();
+      csv_headers.clear();
       iterator_position = 0;
-      // TODO free up any resources related to reading in csv file
     }
 
     std::unique_ptr<RowTuple> get_next_ptr() {
@@ -155,8 +160,88 @@ class FileScan : public Iterator {
 
   private:
     std::vector<std::unique_ptr<RowTuple>> record_ptrs;
+    std::vector<std::string> csv_headers;
     unsigned int iterator_position = 0;
-    string file_name = "";
+    const unsigned int max_csv_line_size = 100000;
+    string file_path = ""; // should be absolute path
+
+
+    void read_csv_data() {
+      // Reading everything into memory for now
+      auto fp = std::fopen(this->file_path.c_str(), "r");
+      if (fp == nullptr) {
+        throw std::runtime_error("Failed to open csv file at path: " + this->file_path);
+      }
+      process_csv_headers(fp);
+      process_csv_data(fp);
+      std::fclose(fp);
+      print_stored_records();
+    }
+
+    void print_stored_records() {
+      // WARNING: I wouldn't call this if full csv file is read in
+      cout << "Now Printing Stored Records from File Scan" << endl;
+      for (auto &record : record_ptrs) {
+        record->print_contents();
+      }
+    }
+
+    void process_csv_data(FILE* fp) {
+      cout << "Processing CSV data" << endl;
+      int done = 0;
+      int err = 0;
+      char* csv_line;
+
+      while (true) {
+        csv_line = fread_csv_line(fp, max_csv_line_size, &done, &err);
+        if (done) {
+          return;
+        }
+        if (err || (csv_line == nullptr)) {
+          // Note nullptr happens if a record is longer than max_csv_line_size
+          throw std::runtime_error("Failed to process csv data: " + this->file_path);
+        }
+        char **parsed = parse_csv(csv_line);
+        free(csv_line);
+
+        auto new_tuple = unique_ptr<RowTuple>(new RowTuple());
+        unsigned int counter = 0;
+        char **curr_field = parsed;
+        for(; *curr_field != nullptr; curr_field++) {
+          string header = csv_headers[counter];
+          string value = string(*curr_field);
+          new_tuple->add_pair_to_record(header, value);
+          counter++;
+        }
+        record_ptrs.push_back(std::move(new_tuple));
+        free_csv_line(parsed);
+      }
+    }
+
+    void process_csv_headers(FILE* fp) {
+      cout << "Reading csv header data" << endl;
+      int done = 0;
+      int err = 0;
+      char* csv_line = fread_csv_line(fp, max_csv_line_size, &done, &err);
+
+      if (done) {
+        throw std::runtime_error("CSV has no data at path: " + this->file_path);
+      }
+      if (err) {
+        throw std::runtime_error("CSV reading error at path: " + this->file_path);
+      }
+      char **parsed = parse_csv(csv_line);
+      free(csv_line);
+      if (parsed == nullptr) {
+        throw std::runtime_error("Error parsing csv file: " + this->file_path);
+      }
+
+      char **curr_field = parsed;
+      for(; *curr_field != nullptr; curr_field++) {
+        csv_headers.push_back(std::string(*curr_field));
+      }
+      free_csv_line(parsed);
+    }
 
     void read_dummy_data() {
       if (!record_ptrs.empty()) { record_ptrs.clear(); }
@@ -179,12 +264,6 @@ class FileScan : public Iterator {
       record_ptrs.push_back(std::move(record5));
     }
 
-    void read_csv_data() {
-      //TODO Read in csv data
-      // For fist attempt, read everything into memory (since you can)o
-      // Later, read in a section of csv file and maintain
-      // necessary info so you can resume reading at subsequent call
-    }
 };
 
 class Select : public Iterator {
@@ -428,7 +507,8 @@ class Sort : public Iterator {
 
       auto col_to_sort = this->sort_column;
       
-      std::sort(sorted_list.begin(), sorted_list.end(), [&col_to_sort](unique_ptr<RowTuple> &a, unique_ptr<RowTuple> &b) {
+      std::sort(sorted_list.begin(), sorted_list.end(), 
+          [&col_to_sort](unique_ptr<RowTuple> &a, unique_ptr<RowTuple> &b) {
           return true;
       });
       
@@ -543,11 +623,17 @@ void test_distinct_node_basic() {
   cout << "Number of records seen testing distinct = " << counter << endl;
 }
 
+void test_csv_read() {
+  FileScan scan("/Users/cameron/database_class/resources/datasets/ratings_10.csv");
+  scan.init();
+}
+
 int main() {
   cout << "Starting Main Function" << endl;
   //test_one();
   //test_average_basic();
-  test_two();
+  //test_two();
+  test_csv_read();
   //test_distinct_node_basic();
   //FileScan scan;
   //scan.init();
