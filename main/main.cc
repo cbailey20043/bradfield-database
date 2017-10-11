@@ -90,14 +90,12 @@ class Iterator {
     virtual ~Iterator() = default;
 
     virtual void init() {
-      cout << "Init in Iterator Base Class" << endl;
       for (std::unique_ptr<Iterator>& input : inputs) {
         input->init();
       }
     }
 
     virtual void close() {
-      cout << "Inside Iterator Close Base Class" << endl;
       // close all inputs
       // TODO make sure there won't be a scenario where inputs are closed multiple times
       for (std::unique_ptr<Iterator>& input : inputs) {
@@ -119,9 +117,6 @@ class Iterator {
     vector<unique_ptr<Iterator>> inputs; //inputs = some other vector -> assignment op
 };
 
-// Note I believe Scan is an input / parent for Select in this example
-// FLOW: SELECT calls get_next() of scan, which is an input, applies a predicate and keeps
-// calling next on scan until select's predicate returns true
 class FileScan : public Iterator {
   public:
 
@@ -165,17 +160,16 @@ class FileScan : public Iterator {
     const unsigned int max_csv_line_size = 100000;
     string file_path = ""; // should be absolute path
 
-
     void read_csv_data() {
       // Reading everything into memory for now
-      auto fp = std::fopen(this->file_path.c_str(), "r");
+      FILE *fp = std::fopen(this->file_path.c_str(), "r");
       if (fp == nullptr) {
         throw std::runtime_error("Failed to open csv file at path: " + this->file_path);
       }
       process_csv_headers(fp);
       process_csv_data(fp);
       std::fclose(fp);
-      print_stored_records();
+      //print_stored_records();
     }
 
     void print_stored_records() {
@@ -187,7 +181,7 @@ class FileScan : public Iterator {
     }
 
     void process_csv_data(FILE* fp) {
-      cout << "Processing CSV data" << endl;
+      //cout << "Processing CSV data" << endl;
       int done = 0;
       int err = 0;
       char* csv_line;
@@ -198,7 +192,6 @@ class FileScan : public Iterator {
           return;
         }
         if (err || (csv_line == nullptr)) {
-          // Note nullptr happens if a record is longer than max_csv_line_size
           throw std::runtime_error("Failed to process csv data: " + this->file_path);
         }
         char **parsed = parse_csv(csv_line);
@@ -223,6 +216,9 @@ class FileScan : public Iterator {
       int done = 0;
       int err = 0;
       char* csv_line = fread_csv_line(fp, max_csv_line_size, &done, &err);
+      cout << "In csv header processing" << endl;
+      cout << "Done value = " << done << endl;
+      cout << string(csv_line) << endl;
 
       if (done) {
         throw std::runtime_error("CSV has no data at path: " + this->file_path);
@@ -316,7 +312,6 @@ class Count : public Iterator {
       cout << "Initializing Count Node" << endl;
       Iterator::init();
       num_records = 0;
-      // result_alias = "Count";
     }
 
     void close() {
@@ -501,7 +496,6 @@ class Sort : public Iterator {
         sorted_list.push_back(std::move(curr_tuple));
       }
     }
-
     
     void sort_input() {
 
@@ -519,24 +513,12 @@ class Sort : public Iterator {
 class Projection : public Iterator {
 };
 
-// Basic Count Test
-void test_one() {
-  // Based off of above query
-  /*
-  FileScan s;
-  std::unique_ptr<RowTuple> foo = s.test_1(); 
-  std::unique_ptr<RowTuple> bar = std::move(foo);
-  */
-  /*
-  FileScan s;
-  s.init();
-  auto next = s.get_next_ptr();
-  cout << "About to print contents from query 1" << endl;
-  next->print_contents();
-  */
+const string test_file_path = "/Users/cameron/database_class/resources/datasets/ratings_100.csv";
 
+// Basic Count Test
+void test_count_basic() {
   Count count;
-  auto future_input = unique_ptr<Iterator>(new FileScan());
+  auto future_input = unique_ptr<Iterator>(new FileScan(test_file_path));
   count.append_input(std::move(future_input));
   count.init();
   auto tot_count = count.get_next_ptr();
@@ -548,11 +530,12 @@ void test_one() {
 // Basic average test
 void test_average_basic() {
   Average avg_node;
-  auto file_scan = unique_ptr<Iterator>(new FileScan());
+  auto file_scan = unique_ptr<Iterator>(new FileScan(test_file_path));
   avg_node.append_input(std::move(file_scan));
   avg_node.init();
-  avg_node.set_col_to_avg("id");
+  avg_node.set_col_to_avg("rating");
   avg_node.get_next_ptr()->print_contents();
+  avg_node.close();
   
 }
 
@@ -624,16 +607,24 @@ void test_distinct_node_basic() {
 }
 
 void test_csv_read() {
+  
   FileScan scan("/Users/cameron/database_class/resources/datasets/ratings_10.csv");
   scan.init();
+  scan.close();
+  
+
+  FileScan scan2("/Users/cameron/database_class/resources/datasets/ratings_10.csv");
+  scan2.init();
+  scan2.close();
 }
 
 int main() {
   cout << "Starting Main Function" << endl;
+  test_count_basic();
+  test_average_basic();
   //test_one();
-  //test_average_basic();
   //test_two();
-  test_csv_read();
+  //test_csv_read();
   //test_distinct_node_basic();
   //FileScan scan;
   //scan.init();
@@ -669,9 +660,6 @@ int main() {
   
   count.get_next().print_contents();
   */
-  
-
-
 
   return (0);
 }
