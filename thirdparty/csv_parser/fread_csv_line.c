@@ -66,7 +66,6 @@ char *fread_csv_line(FILE *fp, int max_line_size, int *done, int *err) {
     limit = buf + max_line_size;
 
     if ( bookmark != fp ) {
-        printf("buff is not equal to file pointer\n");
         read_ptr = read_end = read_buf + READ_BLOCK_SIZE;
         bookmark = fp;
     }

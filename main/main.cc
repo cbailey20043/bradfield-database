@@ -4,7 +4,7 @@
 #include <memory>
 #include <algorithm>
 #include <stdexcept>
-//#include <stdlib.h>
+#include <stdlib.h>
 
 using std::vector;
 using std::cout;
@@ -49,10 +49,15 @@ class RowTuple {
       }
 
       for (const auto& it : row_data) {
-        cout << "Column: " << it.first << endl;
-        cout << "Value: " << it.second << endl;
+        cout << "<" << it.first << ", ";
+        cout <<  it.second << "> ";
       }
+      cout << endl;
     }
+
+    const std::unordered_map<std::string, std::string>& get_row_data() {
+      return row_data;
+    } 
 
     // Note this is case sensitive right now
     // TODO Maybe make case-insensitive
@@ -96,8 +101,6 @@ class Iterator {
     }
 
     virtual void close() {
-      // close all inputs
-      // TODO make sure there won't be a scenario where inputs are closed multiple times
       for (std::unique_ptr<Iterator>& input : inputs) {
         input->close();
       }
@@ -181,7 +184,6 @@ class FileScan : public Iterator {
     }
 
     void process_csv_data(FILE* fp) {
-      //cout << "Processing CSV data" << endl;
       int done = 0;
       int err = 0;
       char* csv_line;
@@ -212,13 +214,9 @@ class FileScan : public Iterator {
     }
 
     void process_csv_headers(FILE* fp) {
-      cout << "Reading csv header data" << endl;
       int done = 0;
       int err = 0;
       char* csv_line = fread_csv_line(fp, max_csv_line_size, &done, &err);
-      cout << "In csv header processing" << endl;
-      cout << "Done value = " << done << endl;
-      cout << string(csv_line) << endl;
 
       if (done) {
         throw std::runtime_error("CSV has no data at path: " + this->file_path);
@@ -267,15 +265,12 @@ class Select : public Iterator {
 
     void init() {
       cout << "Select Node Inited" << endl;
-      // Init inputs
       Iterator::init();
-      // No internal state to set up at moment
     }
 
     void close() {
       cout <<  "Select Node closed" << endl;
       Iterator::close();
-      // No internal state to clean up
     }
 
     void set_predicate(bool (*predicate) (const std::unique_ptr<RowTuple>&)) {
@@ -342,7 +337,6 @@ class Count : public Iterator {
   private:
     long num_records = 0;
     string result_alias = "Count";
-  
 };
 
 class Average : public Iterator {
@@ -445,7 +439,6 @@ class Distinct : public Iterator {
         }
 
       }
-      
       if (curr_reference != nullptr) {
         return std::move(curr_reference);
       }
@@ -460,18 +453,19 @@ class Distinct : public Iterator {
 class Sort : public Iterator {
   public:
     Sort() {}
+    Sort(string sort_col) : sort_column(sort_col) {}
 
     void init() {
-      // Note the init method should read in and sort all records
-      // get_next will then return one sorted record at a time
-      // so init() will be slow, get_next() = fast
       Iterator::init();
+      iterator_position = 0;
       get_unsorted_input();
-     // sort_input();
+      sort_input();
     }
 
     void close() {
       Iterator::close();
+      iterator_position = 0;
+      sorted_list.clear();
     }
 
     void set_sort_column(string col_to_sort) {
@@ -479,14 +473,17 @@ class Sort : public Iterator {
     }
 
     std::unique_ptr<RowTuple> get_next_ptr() {
-      return nullptr;
-      // Call next from input until nothing left, store everything in vector, sort vector
-      // Keep returning elements from vector until noting left
+      if (iterator_position >= sorted_list.size()) {
+        return nullptr;
+      }
+      auto next = std::move(sorted_list[iterator_position++]);
+      return next;
     }
 
   private:
     std::vector<std::unique_ptr<RowTuple>> sorted_list;
     std::string sort_column = "";
+    unsigned int iterator_position;
 
     void get_unsorted_input() {
       std::unique_ptr<Iterator>& input = inputs[0];
@@ -497,28 +494,109 @@ class Sort : public Iterator {
       }
     }
     
+    // NOTE, assuming that all RowTuples have same columns
     void sort_input() {
-
+      // TODO overload comparison operator for RowTuples and put some of this logic there
       auto col_to_sort = this->sort_column;
-      
       std::sort(sorted_list.begin(), sorted_list.end(), 
           [&col_to_sort](unique_ptr<RowTuple> &a, unique_ptr<RowTuple> &b) {
-          return true;
+          if (col_to_sort != "") {
+            //TODO What if value not found?
+            //TODO Make sure you sort numeric data numerically!!!
+            string a_val = a->get_value(col_to_sort);
+            string b_val = b->get_value(col_to_sort);
+            //double a_val = atof(a->get_value(col_to_sort).c_str());
+            //double b_val = atof(b->get_value(col_to_sort).c_str());
+            return  a_val < b_val;
+          }
+          
+          std::vector<std::string> a_keys;
+          for(const auto& it : a->get_row_data()) {
+            a_keys.push_back(it.first);
+          }
+          std::sort(a_keys.begin(), a_keys.end()); // necessary for predictable sorting
+          for (const auto& key : a_keys) {
+            string a_val = a->get_value(key);
+            string b_val = b->get_value(key);
+            if ((b_val == "") || (a_val < b_val)) {
+              return true;
+            }
+            else if (a_val > b_val) {
+              return false;
+            }
+          }
+          // defaulting to false if the rows are equal
+          return false;
       });
-      
-
     }
 };
 
 class Projection : public Iterator {
 };
 
-const string test_file_path = "/Users/cameron/database_class/resources/datasets/ratings_100.csv";
+class NestedJoin : public Iterator {
+  public:
+
+    NestedJoin() {}
+
+    void init() {
+      check_for_required_inputs();
+      Iterator::init();
+    }
+
+    void close() {
+      Iterator::close();
+    }
+
+    void set_predicate(bool (*theta) (const std::unique_ptr<RowTuple>&, const std::unique_ptr<RowTuple>&)) {
+      this->theta = theta;
+    }
+
+    unique_ptr<RowTuple> get_next_ptr() {
+      unique_ptr<Iterator>& R = inputs[0];
+      unique_ptr<Iterator>& S = inputs[1];
+      if (current_r == nullptr) {
+        this->current_r = R->get_next_ptr();
+      }
+      while (this->current_r != nullptr) {
+        unique_ptr<RowTuple>& r = this->current_r;
+        unique_ptr<RowTuple> s;
+        while ((s = S->get_next_ptr()) != nullptr) {
+          if (theta(r,s)) {
+            return merge_row_tuples(r, s);
+          }
+        }
+        S->close();
+        S->init();
+        this->current_r = R->get_next_ptr();
+      }
+      return nullptr;
+    }
+
+  private:
+    unique_ptr<RowTuple> current_r;
+
+    bool (*theta) (const std::unique_ptr<RowTuple>&, const std::unique_ptr<RowTuple>&);
+
+    void check_for_required_inputs() {
+      if (theta == nullptr) {
+        throw std::runtime_error("Nested Join requires a predicate function");
+      }
+      if (inputs.size() != 2) {
+        throw std::runtime_error("Nested join requires two inputs");
+      }
+    }
+
+    unique_ptr<RowTuple> merge_row_tuples(const unique_ptr<RowTuple>& r, const unique_ptr<RowTuple>& s) {
+      return nullptr;
+    }
+};
+
 
 // Basic Count Test
-void test_count_basic() {
+void test_count_basic(const string& file_path) {
   Count count;
-  auto future_input = unique_ptr<Iterator>(new FileScan(test_file_path));
+  auto future_input = unique_ptr<Iterator>(new FileScan(file_path));
   count.append_input(std::move(future_input));
   count.init();
   auto tot_count = count.get_next_ptr();
@@ -528,9 +606,9 @@ void test_count_basic() {
 }
 
 // Basic average test
-void test_average_basic() {
+void test_average_basic(const string& file_path) {
   Average avg_node;
-  auto file_scan = unique_ptr<Iterator>(new FileScan(test_file_path));
+  auto file_scan = unique_ptr<Iterator>(new FileScan(file_path));
   avg_node.append_input(std::move(file_scan));
   avg_node.init();
   avg_node.set_col_to_avg("rating");
@@ -539,29 +617,21 @@ void test_average_basic() {
   
 }
 
-void test_two() {
-  cout << "Starting Test 2" << endl;
-  auto s = std::unique_ptr<Iterator>(new FileScan());
+// Basic sort test
+void test_sort_basic(const string& file_path) {
+  auto file_scan = unique_ptr<Iterator>(new FileScan(file_path));
+  Sort sort;
+  sort.set_sort_column("rating");
+  sort.append_input(std::move(file_scan));
+  sort.init();
+  unique_ptr<RowTuple> t;
 
-  Average avg("avg");
-  avg.set_col_to_avg("foo");
-  avg.append_input(std::move(s));
-  cout << "About to print average" << endl;
-  avg.init();
-  cout << (avg.get_next_ptr() == nullptr) << endl;
-
-  auto p = std::unique_ptr<Iterator>(new FileScan());
-  Average avg2("id");
-  avg2.set_col_to_avg("id");
-  avg2.append_input(std::move(p));
-  avg2.init();
-  cout << "About to print second average" << endl;
-  avg2.get_next_ptr()->print_contents();
-  
+  while ((t = sort.get_next_ptr()) != nullptr) {
+    t->print_contents();
+  }
 }
 
-// Tests row_tuple equality
-void test_three() {
+void test_row_tuple_equality() {
   cout << "Starting RowTuple equality tests" << endl;
   RowTuple t1({{"student", "jimmy cricket"}, {"id", "2"}});
   RowTuple t2({{"student", "jimmy cricket"}, {"id", "2"}});
@@ -586,14 +656,15 @@ void test_three() {
   RowTuple t9({{"student", "james cricket"}, {"id", "2"}});
   RowTuple t10({{"student", "jimmy cricket"}, {"id", "2"}});
   cout << "RowTuple equality test 1\t" <<  "Expected: 1 " << "Actual: " << (t9 != t10) << endl;
-  
 }
 
 // Modify later to add Sort Node as input
-void test_distinct_node_basic() {
-  auto scan = std::unique_ptr<Iterator>(new FileScan());
+void test_distinct_node_basic(const string& file_path) {
+  auto scan = std::unique_ptr<Iterator>(new FileScan(file_path));
+  auto sort = std::unique_ptr<Iterator>(new Sort("movieId")); //timestamp
   Distinct d;
-  d.append_input(std::move(scan));
+  sort->append_input(std::move(scan));
+  d.append_input(std::move(sort));
   d.init();
 
   unique_ptr<RowTuple> tuple;
@@ -607,11 +678,9 @@ void test_distinct_node_basic() {
 }
 
 void test_csv_read() {
-  
   FileScan scan("/Users/cameron/database_class/resources/datasets/ratings_10.csv");
   scan.init();
   scan.close();
-  
 
   FileScan scan2("/Users/cameron/database_class/resources/datasets/ratings_10.csv");
   scan2.init();
@@ -620,8 +689,12 @@ void test_csv_read() {
 
 int main() {
   cout << "Starting Main Function" << endl;
-  test_count_basic();
-  test_average_basic();
+  //test_count_basic();
+  //test_average_basic();
+  //test_sort_basic();
+  const string test_file_path = "/Users/cameron/database_class/resources/datasets/ratings_10.csv";
+  //test_count_basic(test_file_path);
+  test_distinct_node_basic(test_file_path);
   //test_one();
   //test_two();
   //test_csv_read();
